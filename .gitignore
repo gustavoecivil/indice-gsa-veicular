@@ -1,0 +1,20 @@
+# Ambiente virtual
+venv/
+.venv/
+
+# Segredos
+.env
+
+# Python
+__pycache__/
+*.pyc
+
+# Dados (gerados pelos scripts de ingestão, não versionados)
+data/raw/*
+data/processed/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# IDE
+.vscode/
+.idea/
