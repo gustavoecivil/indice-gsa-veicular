@@ -116,3 +116,74 @@ DuckDB (`data/processed/indice_gsa.duckdb`) representa.
   de conserto de automóvel, por mês de referência (`mes_referencia`).
   Não tem histórico anterior a janeiro/2020 nessa tabela (a série
   anterior está na tabela SIDRA 1419, ainda não integrada).
+
+## INMETRO/PBEV — Consumo de combustível por marca/modelo/versão
+
+- **Nome oficial**: Programa Brasileiro de Etiquetagem Veicular (PBEV),
+  publicado pelo INMETRO (Instituto Nacional de Metrologia, Qualidade e
+  Tecnologia).
+- **URL**: página de listagem —
+  https://www.gov.br/inmetro/pt-br/assuntos/avaliacao-da-conformidade/programa-brasileiro-de-etiquetagem/tabelas-de-eficiencia-energetica/veiculos-automotivos-pbe-veicular
+  — o script baixa direto o PDF mais recente listado ali (link
+  `.../@@download/file`, sempre o primeiro da lista, que é o ciclo mais
+  atual).
+- **Formato real da fonte**: só existe em **PDF** — não há planilha
+  Excel/CSV estruturada equivalente publicada pelo INMETRO (conferido
+  antes de escrever o script, pra não perder tempo forçando um formato
+  que não existe). O PDF tem texto real extraível (não é digitalização
+  escaneada), mas o cabeçalho da tabela vem com texto rotacionado que
+  nenhum extrator consegue linearizar direito — por isso o mapeamento de
+  colunas usado no script foi confirmado **empiricamente**, comparando
+  linhas de veículos a gasolina, flex, diesel, elétricos e híbridos
+  plug-in entre si, em vez de confiar no cabeçalho.
+- **Frequência de atualização da fonte**: por ciclo (o INMETRO publica
+  uma tabela nova a cada poucos meses — o arquivo mais recente no
+  momento desta ingestão era do "18º Ciclo", atualizado em junho/2026).
+- **Como é ingerida aqui**: `scripts/ingestao/inmetro_pbev.py` usa
+  `pdfplumber` pra extrair as tabelas do PDF. Uma fração pequena das
+  linhas (~3,6% nesta rodada — 31 de 864) sai com células mescladas — o
+  texto de 2-3 veículos adjacentes se funde numa célula só, às vezes
+  intercalado caractere a caractere, por imprecisão na detecção de
+  grade do PDF. O script identifica essas linhas comparando campos
+  categóricos (categoria, tipo de propulsão, combustível, classificação,
+  selo CONPET) contra os valores reais e válidos do arquivo, e
+  **descarta** as que não batem, em vez de arriscar reconstruir errado —
+  documentado no resumo da execução.
+- **O que a tabela representa**: `inmetro_consumo_veiculos` tem, por
+  veículo (`categoria`, `marca`, `modelo`, `versão`, `motor`,
+  `tipo_propulsao`, `combustivel`), o consumo oficial em quilômetros por
+  litro na cidade e na estrada — `consumo_cidade_km_l` /
+  `consumo_estrada_km_l` para o combustível líquido principal do veículo
+  (gasolina ou diesel, dependendo do `combustivel`), e
+  `consumo_cidade_etanol_km_l` / `consumo_estrada_etanol_km_l` quando o
+  veículo é flex. Veículos elétricos e híbridos plug-in também têm
+  `consumo_cidade_eletrico_km_l_equiv` / `consumo_estrada_eletrico_km_l_equiv`
+  (quilometragem por litro equivalente, métrica oficial do PBEV pra
+  comparar eficiência elétrica com combustão), além de
+  `consumo_energetico_mj_km` e `autonomia_eletrica_km`. As colunas de
+  emissões/poluentes da tabela original **não foram extraídas** — o
+  cabeçalho rotacionado não deu confiança suficiente pra rotular cada
+  uma corretamente, e não são necessárias pro escopo deste projeto.
+- **Cruzamento com a FIPE**: `inmetro_pbev.py` também tenta casar cada
+  veículo do PBEV com um modelo da tabela `fipe_modelos`, por
+  aproximação de texto normalizado (minúsculo, sem acento, marca e
+  modelo comparados separadamente). Grava o resultado em
+  `fipe_pbev_match`, com uma coluna `confianca`:
+  - `exato`: o modelo inteiro do PBEV aparece como prefixo do
+    `nome_modelo` da FIPE dentro da mesma marca (ex.: PBEV "HB20S" casa
+    exato com FIPE "HB20S Comfort 1.0-12V...").
+  - `aproximado`: o modelo do PBEV aparece em algum lugar dentro do
+    `nome_modelo` da FIPE, mas não como prefixo exato (ex.: PBEV
+    "VELAR" dentro de FIPE "Range R. VELAR 2.0 4x4...").
+  - `sem_match`: nenhum candidato encontrado (marca não reconhecida ou
+    modelo não aparece em nenhum nome_modelo da marca na FIPE).
+
+  Taxa de cruzamento obtida nesta rodada: **76,7%** dos 833 veículos do
+  PBEV (75,8% exato + 1,0% aproximado) — bem acima do patamar de 20%
+  que seria motivo de preocupação. Os ~23% sem match são majoritariamente
+  modelos muito recentes (ex.: lançamentos 2026) que ainda não têm
+  histórico de preço na FIPE, ou marcas novas no mercado brasileiro cujo
+  catálogo FIPE ainda é incompleto — não é uma falha do método de
+  comparação de texto, é a FIPE genuinamente não ter esses veículos
+  ainda. Esse cruzamento é a nível de marca/modelo (não por ano/versão
+  específica da FIPE) — refinamento fino fica para uma próxima etapa.
