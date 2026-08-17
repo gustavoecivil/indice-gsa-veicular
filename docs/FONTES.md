@@ -187,3 +187,100 @@ DuckDB (`data/processed/indice_gsa.duckdb`) representa.
   comparação de texto, é a FIPE genuinamente não ter esses veículos
   ainda. Esse cruzamento é a nível de marca/modelo (não por ano/versão
   específica da FIPE) — refinamento fino fica para uma próxima etapa.
+
+## ANEEL — Tarifa de Energia (TE) residencial por distribuidora
+
+- **Nome oficial**: dataset "Tarifas homologadas das distribuidoras de
+  energia elétrica", publicado pela Agência Nacional de Energia Elétrica
+  (ANEEL) no Portal de Dados Abertos (roda em CKAN, mesmo padrão do
+  dados.gov.br).
+- **URL**: https://dadosabertos.aneel.gov.br/dataset/5a583f3e-1646-4f67-bf0f-69db4203e89e
+  — recurso CSV direto:
+  https://dadosabertos.aneel.gov.br/dataset/5a583f3e-1646-4f67-bf0f-69db4203e89e/resource/fcf2906c-7c32-4b9b-a637-054e7a5234f4/download/tarifas-homologadas-distribuidoras-energia-eletrica.csv
+- **Investigação de acesso feita antes de escrever o script**: a API de
+  busca do portal (`package_search`) e o domínio
+  `dadosabertos.aneel.gov.br` inteiro estavam **inacessíveis** no
+  momento desta ingestão (conexão fechada pelo servidor logo no
+  handshake TLS) — testado tanto por requisição direta (Python/`requests`)
+  quanto por um navegador real, com o mesmo resultado, então não é
+  bloqueio de IP de datacenter, parece o serviço genuinamente fora do ar.
+  Evidências via Wayback Machine mostram o domínio respondendo
+  normalmente ainda em maio/2026 — a indisponibilidade parece recente e
+  provavelmente temporária, não uma descontinuação da plataforma. Como
+  alternativa cogitada no escopo da tarefa, o relatório público "Ranking
+  das Tarifas" (`portalrelatorios.aneel.gov.br/luznatarifa/rankingtarifas`)
+  foi inspecionado e confirmado como um relatório **Power BI incorporado**
+  (renderização visual via `powerbi.js`), sem CSV/API exportável por trás
+  — não é uma fonte alternativa viável.
+  - **Fallback usado nesta ingestão**: cópia do CSV oficial obtida via
+    [web.archive.org](https://web.archive.org) (Wayback Machine),
+    capturada em 2025-05-02 (69.318.328 bytes, cp1252). O script
+    (`scripts/ingestao/aneel_tarifas.py`) tenta a URL oficial ao vivo
+    primeiro por padrão; a flag `--arquivo-local` permite apontar pra
+    uma cópia baixada manualmente quando a fonte estiver fora do ar,
+    como foi necessário aqui.
+- **Formato real da fonte**: CSV único com o histórico completo de
+  **todas** as resoluções homologatórias de tarifa já publicadas (não só
+  a vigente), para todas as classes de consumidor e subgrupos de tensão
+  — 265.690 linhas na captura usada, delimitador `;`, codificação
+  **cp1252** (não UTF-8; confirmado byte a byte antes de assumir, já que
+  a decodificação errada produz caracteres corrompidos silenciosamente
+  em vez de erro).
+- **Frequência de atualização da fonte**: contínua — cada distribuidora
+  tem seu próprio ciclo de reajuste tarifário (normalmente anual), então
+  a ANEEL atualiza o arquivo conforme cada uma é reajustada, não em lote.
+- **Como é ingerida aqui**: `scripts/ingestao/aneel_tarifas.py` filtra o
+  CSV pra Tarifa de Energia (TE) residencial **vigente** por
+  distribuidora: classe `Residencial`, subclasse `Residencial` (exclui a
+  subclasse subsidiada `Baixa Renda`), subgrupo `B1` (baixa tensão),
+  modalidade `Convencional` (exclui tarifa branca, pré-pagamento e
+  ABRACE) e base tarifária `Tarifa de Aplicação` (o valor efetivamente
+  cobrado do consumidor, não a `Base Econômica`, que é só um componente
+  de cálculo). "Vigente" = a resolução cujo período
+  `[DatInicioVigencia, DatFimVigencia]` contém a data de geração do
+  arquivo fonte (`DatGeracaoConjuntoDados`).
+- **Mapeamento distribuidora → UF (a complexidade central desta fonte)**:
+  o CSV da ANEEL **não tem coluna de UF**, só a sigla da distribuidora
+  (`SigAgente`) e o CNPJ (`NumCNPJDistribuidora`). O script resolve a UF
+  de cada distribuidora consultando o CNPJ na API pública
+  **minhareceita.org** (espelho gratuito e rápido, sem limite de taxa
+  observado, dos dados públicos de CNPJ da Receita Federal) e usando a
+  **UF de registro da matriz** como proxy da UF da área de concessão.
+  Isso é uma aproximação razoável — e não uma coincidência — porque a
+  atividade principal dessas empresas é exclusivamente "Distribuição de
+  energia elétrica" (CNAE 35.14-0/00), o que exige presença local
+  obrigatória na área da concessão pra operar; não é o caso genérico de
+  usar endereço de matriz como proxy de onde uma empresa qualquer atua.
+  **Limitação conhecida**: o método atribui cada distribuidora a uma
+  única UF; não foi identificado nenhum caso, entre as 102 distribuidoras
+  com tarifa residencial vigente nesta rodada, de uma mesma distribuidora
+  atendendo partes de mais de uma UF a partir da mesma matriz/CNPJ — mas
+  se isso existir (é um cenário conhecido do setor em áreas de fronteira
+  entre estados), o método atual não captura essa divisão. Resultado
+  desta rodada: as 27 UFs (26 estados + DF) têm pelo menos uma
+  distribuidora — cobertura completa. Nove UFs têm **mais de uma**
+  distribuidora, concentradas em cooperativas rurais pequenas: SC (26),
+  RS (19), SP (19), PR (5), RJ (5), MG (3), SE (3), GO (2), ES (2); as
+  outras 18 UFs têm exatamente uma. O cache do mapeamento fica na tabela
+  `aneel_distribuidora_uf` (evita reconsultar a API a cada execução; use
+  `--forcar-uf` pra reconsultar tudo).
+- **O que a tabela representa**: `aneel_tarifa_residencial` tem, por
+  distribuidora (`distribuidora` = `SigAgente`) e sua UF de concessão
+  (`uf`, resolvida como acima), a Tarifa de Energia residencial
+  atualmente vigente em R$/kWh (`tarifa_te_reais_kwh` — convertida do
+  R$/MWh publicado pela ANEEL), junto com o CNPJ, o período de vigência
+  da resolução (`data_inicio_vigencia`/`data_fim_vigencia`) e
+  `data_referencia` (data de geração do arquivo fonte usado nesta
+  rodada). É uma tabela de **estado atual** (full-refresh a cada
+  execução, ~100 linhas), não uma série histórica — o CSV fonte tem o
+  histórico completo, mas só a fatia vigente é carregada aqui, já que o
+  objetivo é estimar custo de recarga hoje, não estudar a evolução
+  tarifária.
+  **A tarifa média por UF** (usada no export estático pro
+  alugaroucomprar, não nesta tabela) é a **média simples** entre as
+  distribuidoras de cada UF, sem ponderar por número de
+  consumidores/unidades atendidas — então nas UFs com muitas
+  cooperativas pequenas (SC, RS) uma cooperativa minúscula pesa igual a
+  uma distribuidora grande do mesmo estado. Simplificação aceitável pro
+  escopo (estimativa aproximada de custo de recarga), documentada aqui
+  em vez de escondida.
