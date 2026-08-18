@@ -284,3 +284,105 @@ DuckDB (`data/processed/indice_gsa.duckdb`) representa.
   uma distribuidora grande do mesmo estado. Simplificação aceitável pro
   escopo (estimativa aproximada de custo de recarga), documentada aqui
   em vez de escondida.
+
+## SUSEP — AUTOSEG (sinistralidade/prêmio do seguro auto) e IVR (índice de veículos roubados)
+
+- **Nome oficial**: "Dados estatísticos do Seguro de Automóveis -
+  AUTOSEG" e "IVR - Índice de Veículos Roubados", publicados pela SUSEP
+  (Superintendência de Seguros Privados).
+- **URL**: AUTOSEG está catalogado no Portal de Dados Abertos
+  (dados.gov.br), mas os arquivos em si são baixados direto do host da
+  SUSEP:
+  https://www2.susep.gov.br/redarq.asp?arq=Autoseg2019B.zip (1º semestre
+  2019) e
+  https://www2.susep.gov.br/redarq.asp?arq=Autoseg2020A.zip (2º semestre
+  2019). IVR não está catalogado em dados.gov.br — vive só em
+  https://www2.susep.gov.br/menuestatistica/RankRoubo/menu1.asp, uma
+  ferramenta de consulta on-line.
+- **Investigação de acesso feita antes de escrever o script**:
+  - A API antiga do CKAN em `dados.gov.br/api/3/action/*` agora exige
+    token Bearer — `package_search`, `package_show`, qualquer chamada,
+    todas retornam 401. O portal migrou pra um backend próprio; o
+    endpoint real usado pelo frontend React é
+    `dados.gov.br/api/publico/conjuntos-dados/...` (sem autenticação),
+    descoberto inspecionando as chamadas de rede do site no navegador —
+    não documentado publicamente, mas funcional.
+  - O dataset AUTOSEG nesse catálogo está **parado desde 2021**: só
+    lista 2 recursos reais de dados (1º e 2º semestre de **2019**),
+    apesar da fonte ser descrita como semestral. Não é uma falha do
+    script — é o estado real do catálogo, confirmado consultando o JSON
+    de metadados do dataset (campo `dataUltimaAtualizacaoRecurso`:
+    `2021-06-28T19:14:40`).
+  - **IVR não está no catálogo de dados abertos.** As 11 datasets da
+    SUSEP em dados.gov.br (conferidas via
+    `/api/publico/conjuntos-dados/buscar?idOrganizacao=<id-susep>`) não
+    incluem IVR sob nenhum nome. Buscas por "IVR", "veículos roubados",
+    "roubo furto" no catálogo não retornam nada. O IVR só existe como
+    ferramenta de consulta on-line legada
+    (`www2.susep.gov.br/menuestatistica/RankRoubo`) — um formulário ASP
+    clássico com filtros de categoria tarifária/região/sexo/idade do
+    condutor, sem opção de download em massa. Confirmado por busca
+    dedicada antes de assumir que só existe como página visual.
+- **Formato real da fonte**:
+  - AUTOSEG: cada zip semestral tem **14 CSVs diferentes** (não um
+    arquivo único) — 3 tabelas "fato" grandes com granularidade de
+    exposição/prêmio/sinistro em recortes geográficos diferentes
+    (`arq_casco_comp.csv` por região+perfil do segurado, ~330MB;
+    `arq_casco3_comp.csv` por CEP, ~1,1GB; `arq_casco4_comp.csv` por
+    cidade, ~455MB), duas tabelas de totais regionais pequenas
+    (`PremReg.csv`, `SinReg.csv`) e várias tabelas de-para pequenas
+    (`auto_cidade.csv`, `auto_reg.csv`, `auto2_vei.csv` etc.).
+    Delimitador `;`, separador decimal `,` (padrão brasileiro).
+  - IVR: HTML puro (tabela `<table>` simples dentro da resposta de um
+    POST em formulário ASP), sem JSON/CSV por trás.
+- **Frequência de atualização da fonte**: AUTOSEG é semestral (mas o
+  catálogo em dados.gov.br está travado em 2019, ver acima); IVR não
+  informa data de referência na própria ferramenta de consulta — o
+  texto da SUSEP diz que reflete "o último envio semestral", sem
+  precisar qual.
+- **Como é ingerida aqui**: `scripts/ingestao/susep.py`.
+  - AUTOSEG: baixa os 2 zips, extrai só o `arq_casco_comp.csv` de cada
+    um (a granularidade que bate com a descrição oficial do AUTOSEG —
+    "classificadas de acordo com categoria, modelo e ano do veículo,
+    região... e perfil do segurado") e carrega em `susep_autoseg` via
+    leitor nativo de CSV do DuckDB (não pandas — esse arquivo específico
+    tem ~3 milhões de linhas por semestre, e o leitor do DuckDB é bem
+    mais leve em memória que `pandas.read_csv` nesse volume; pandas
+    continua sendo usado normalmente pro IVR, que é pequeno).
+    **Escopo consciente**: os outros dois arquivos "fato" de cada zip
+    (`arq_casco3_comp.csv` por CEP e `arq_casco4_comp.csv` por cidade,
+    juntos ~1,5GB por semestre) e as tabelas de-para não foram
+    ingeridos nesta rodada, pra manter o volume gerenciável — ficam
+    disponíveis nos zips baixados em `data/raw/` se fizerem falta
+    depois. Os códigos (`COD_TARIF`, `REGIAO`, `COD_MODELO`, `SEXO`,
+    `IDADE`) não são decodificados — ficam exatamente como vieram no
+    CSV original, sem inventar schema.
+  - **Retomável por semestre**: a máquina onde isso foi desenvolvido
+    ficou sem espaço em disco (chegou a 0 bytes livres) e sem memória no
+    meio da ingestão mais de uma vez — cada semestre é ~300MB
+    descompactado. Por isso `ingerir_autoseg` não dropa a tabela inteira
+    a cada execução: verifica quais valores de `ENVIO` já estão em
+    `susep_autoseg` e pula os semestres já carregados, além de apagar o
+    CSV extraído logo depois de carregar cada semestre (só o zip original
+    fica em `data/raw/`). Rodar de novo depois de uma falha por falta de
+    recurso retoma do semestre que faltou, em vez de refazer tudo.
+  - IVR: faz o fluxo completo do formulário (GET na página do
+    formulário pra pegar cookie de sessão ASP, POST em
+    `resp_menu1.asp` com todos os filtros em "Todas"/"Todos" pra pegar o
+    agregado nacional por modelo) e faz parsing do HTML de resposta com
+    `pandas.read_html`.
+- **O que cada tabela representa**:
+  - `susep_autoseg`: uma linha por combinação categoria
+    tarifária/região/modelo/ano-modelo/sexo/idade-do-condutor, com
+    exposição (veículos-ano segurados), prêmio, importância segurada
+    média, frequência de sinistros e indenizações — colunas exatamente
+    como vieram do `arq_casco_comp.csv` da SUSEP (`COD_TARIF`, `REGIAO`,
+    `COD_MODELO`, `ANO_MODELO`, `SEXO`, `IDADE`, `EXPOSICAO1`,
+    `PREMIO1`, ..., `ENVIO`). 6.339.587 linhas (2 semestres de 2019).
+  - `susep_ivr`: índice de roubo/furto (%) por modelo de veículo,
+    agregado nacionalmente (todas as categorias/regiões/sexos/idades
+    combinados) — 499 linhas, uma por modelo. **Limitação**: é só o
+    agregado nacional; a ferramenta permite filtrar por região/perfil do
+    segurado, mas isso exigiria uma chamada por combinação de filtro
+    (centenas/milhares de combinações possíveis) contra um sistema ASP
+    legado e frágil — fora de escopo nesta rodada.
