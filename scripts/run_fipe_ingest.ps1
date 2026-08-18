@@ -1,4 +1,4 @@
-$projeto = "C:\Users\gusta\indice-gsa-veicular"
+$projeto = "D:\indice-gsa-veicular"
 $python = "$projeto\venv\Scripts\python.exe"
 $script = "$projeto\scripts\ingestao\fipe.py"
 $log = "$projeto\logs\execucao_$(Get-Date -Format 'yyyy-MM-dd').log"
