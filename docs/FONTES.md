@@ -498,3 +498,62 @@ DuckDB (`data/processed/indice_gsa.duckdb`) representa.
     mutuamente exclusivo. Nesta rodada (`--anos-recentes 3`, padrão):
     309.203 linhas, cobrindo 2024–2026, 35 tipos de veículo distintos e
     86.665 combinações UF/município/mês distintas.
+
+## Proxy de frota corporativa/locadora — ranking Fenabrave (fallback, sem dado direto de PJ)
+
+- **Motivação**: identificar os modelos de veículo mais usados por
+  locadoras/frota corporativa, pra uso futuro como filtro no simulador
+  ou em análises. Não existe dataset público brasileiro com "frota da
+  locadora X por modelo" — essa informação é comercialmente sensível e
+  não é aberta.
+- **Investigação feita antes de escrever o script**: verificado
+  primeiro se `senatran_frota` (RENAVAM, já integrada — ver seção
+  SENATRAN acima) teria a granularidade necessária. **Não tem**: as
+  únicas 6 colunas da tabela são `uf`, `municipio`, `marca_modelo`,
+  `ano_fabricacao_crv`, `quantidade`, `mes_referencia` — nenhuma coluna
+  de tipo de proprietário (pessoa física/jurídica) ou equivalente. Essa
+  granularidade **nunca existiu no arquivo fonte do RENAVAM** (o TXT
+  mensal só tem `UF;Município;Marca Modelo;Ano Fabricação Veículo
+  CRV;Qtd. Veículos` — confirmado na ingestão original, não é uma
+  limitação introduzida por este projeto). Não dá pra calcular
+  proporção PJ/PF por modelo com o dado disponível.
+- **Fallback usado (proxy, não confirmação direta)**: ranking de
+  emplacamento total por modelo no Brasil, publicado pela **Fenabrave**
+  (Federação Nacional da Distribuição de Veículos Automotores), obtido
+  via o agregador **Auto Reporter**
+  (autoreporter.news/emplacamentos) — referência **julho de 2026**
+  (mensal, não acumulado do ano). Premissa: os modelos mais vendidos no
+  varejo em geral tendem a ser também os mais comprados em volume por
+  locadoras/frotistas (que compram em escala do que já é popular, tem
+  rede de peças ampla e boa liquidez de revenda), não o contrário. **Não
+  é confirmação de que a locadora X tem o carro Y** — é uma aposta
+  razoável na ausência de dado direto, e deve ser tratada como tal em
+  qualquer uso futuro.
+- **Como é calculado aqui**: `scripts/analise/proxy_frota_locadora.py`
+  cruza os 50 modelos mais emplacados (ranking hardcoded no script, com
+  marca, categoria e unidades emplacadas) contra
+  `fipe_historico_precos`, casando por marca (com mapeamento manual
+  Fenabrave→FIPE, ex.: "GM"→"CHEVROLET", "VW"→"VOLKSWAGEN") e por texto
+  no nome do modelo. Duas marcas novas (chinesas, lançadas em
+  2025/2026 — Jaecoo e Omoda) exigiram tratamento especial: a FIPE não
+  repete o nome da marca no campo `modelo` pra elas (aparece só "7
+  Elite..." ou "5 Luxury...", sem "Jaecoo"/"Omoda" no texto) — resolvido
+  casando por marca exata em vez de por texto no modelo.
+- **Por que a saída guarda uma LISTA de códigos por modelo, não um
+  código único**: a FIPE cataloga por trim/motorização específico (ex.:
+  "Strada 1.3 mpi Fire 8V 67cv CE"), não por "modelo" no sentido
+  comercial (ex.: "Strada") — 1 modelo do ranking Fenabrave bate com
+  entre 2 (Omoda 5, King) e 116 (HB20) códigos FIPE distintos nesta
+  rodada. Usar um código só seria arbitrário e sub-representaria o
+  modelo. Pra filtrar no simulador, o padrão real é (`marca_fipe`,
+  prefixo/token do `modelo`), não um `codigo_fipe` isolado.
+- **O que o arquivo representa**: `data/processed/proxy_frota_locadora.json`
+  tem, por modelo (rank, nome, marca, categoria, unidades emplacadas em
+  julho/2026), a marca como aparece na FIPE, a lista completa de
+  `codigos_fipe` que casaram, e até 3 nomes de exemplo. **Resultado
+  desta rodada**: 50/50 modelos com pelo menos 1 código FIPE mapeado
+  (nenhum ficou sem match), 1.143 códigos FIPE distintos cobertos ao
+  todo. Não grava tabela no DuckDB — é um artefato JSON derivado,
+  reproduzível rodando o script de novo (o ranking Fenabrave, por ser
+  hardcoded e datado de julho/2026, precisa ser atualizado manualmente
+  se for reusar isso mais adiante no tempo).
