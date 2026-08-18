@@ -4,13 +4,17 @@
 
 ## Resumo
 
-O preço da tabela FIPE se mostrou historicamente estável mês a mês — variação média de 2,11% entre os veículos com histórico real acompanhado, o que reforça a FIPE como referência confiável de curto prazo. O combustível já não é assim: a gasolina custa 22,29% a mais em RR do que em MG, e o etanol varia ainda mais entre estados (60,06% do mais caro ao mais barato) — onde o carro roda pesa tanto quanto qual carro é. Na manutenção, o conserto de automóvel subiu em 12 meses de 2,09% em Salvador - BA a 10,29% em Grande Vitória - ES — uma diferença regional grande o suficiente pra merecer entrar na conta do custo total de posse.
+O preço da tabela FIPE se mostrou historicamente estável mês a mês — variação média de 2,13% entre os veículos com histórico real acompanhado (amostra recalculada sobre o catálogo completo: 30.314 veículos, ante 2.253 na rodada anterior), o que reforça a FIPE como referência confiável de curto prazo. O combustível já não é assim: a gasolina custa 22,29% a mais em RR do que em MG, e o etanol varia ainda mais entre estados (60,06% do mais caro ao mais barato) — onde o carro roda pesa tanto quanto qual carro é. Na manutenção, o conserto de automóvel subiu em 12 meses de 2,09% em Salvador - BA a 10,29% em Grande Vitória - ES — uma diferença regional grande o suficiente pra merecer entrar na conta do custo total de posse.
 
 ## FIPE — estabilidade de preço
 
-Entre os 2.253 veículos (de um catálogo de 50.838 combinações código FIPE/ano/combustível) que têm histórico real de 2 ou mais meses ao longo de 12 meses de dado disponível, a variação de preço mês a mês foi de **2,11%** em média (coeficiente de variação — desvio padrão sobre a média do preço de cada veículo), com amplitude média (máximo menos mínimo sobre a média) de 6,38%.
+*Seção recalculada em 2026-08-18, sobre o catálogo completo — a ingestão do histórico via API do plano pago terminou (30.433 combinações marca/modelo/ano) desde a versão anterior deste relatório.*
 
-Isso confirma o achado que já tínhamos ao calcular o risco por categoria (`docs/METODOLOGIA_RISCO.md`): a tabela FIPE se move pouco de um mês pro outro. O risco real de depreciação de um veículo está muito mais em revenda/mercado no horizonte de anos do que em oscilação mês a mês da própria tabela.
+Entre os 30.314 veículos (de um catálogo de 50.838 combinações código FIPE/ano/combustível) que têm histórico real de 2 ou mais meses ao longo de 12 meses de dado disponível, a variação de preço mês a mês foi de **2,13%** em média (coeficiente de variação — desvio padrão sobre a média do preço de cada veículo), com amplitude média (máximo menos mínimo sobre a média) de 6,54%. É um salto de amostra de ~13x em relação à rodada anterior (2.253 veículos, CV 2,11%) — o número mudou pouco (2,11% → 2,13%), o que é um bom sinal: a estimativa já era razoavelmente estável mesmo com a amostra pequena, e a amostra maior deu mais confiança sem mudar a conclusão.
+
+Por categoria (`docs/METODOLOGIA_RISCO.md`, também recalculado): popular 1,63%→1,83%, intermediário 2,31%→2,07%, premium 2,59%→2,59% (não mudou), elétrico 2,71%→2,93%. Nenhuma categoria mudou de patamar — continuam todas na faixa de 1,8% a 2,9%.
+
+Isso confirma o achado que já tínhamos ao calcular o risco por categoria: a tabela FIPE se move pouco de um mês pro outro, mesmo com amostra bem maior. Mas o horizonte medido continua sendo de até 12 meses (setembro/2025 a agosto/2026) — o risco real de depreciação de um veículo está muito mais em revenda/mercado no horizonte de anos do que em oscilação mês a mês da própria tabela, e isso a amostra maior não resolve, só mais meses acumulados resolvem.
 
 ## ANP — combustível por região
 
@@ -85,13 +89,13 @@ Variação acumulada em 12 meses do subitem `5102011.Conserto de automóvel` do 
 
 ## Metodologia e limitações
 
-- **FIPE**: o cálculo de variação usa só veículos com 2+ meses de histórico real (2.253 de 50.838 combinações no catálogo) — a maior parte do catálogo veio de um único CSV mensal e ainda não tem série temporal própria pra medir variação. Ver `docs/METODOLOGIA_RISCO.md` para o detalhamento por categoria de veículo (popular/intermediário/premium/elétrico).
+- **FIPE**: o cálculo de variação usa só veículos com 2+ meses de histórico real (30.314 de 50.838 combinações no catálogo, 60% — cresceu de 2.253 desde a versão anterior deste relatório, com a conclusão da ingestão via API). O restante (~40% do catálogo) ainda veio de um único CSV mensal e não tem série temporal própria pra medir variação. Mesmo com a amostra bem maior, o horizonte medido continua sendo de até 12 meses, não anos — ver `docs/METODOLOGIA_RISCO.md` para o detalhamento por categoria de veículo (popular/intermediário/premium/elétrico) e as limitações desse horizonte curto.
 
 - **ANP**: preço médio de revenda por semana e UF, direto da série histórica oficial da ANP (não passa por posto individual, é a média semanal já agregada pela própria agência). A semana de referência pode variar ligeiramente entre UFs quando alguma não teve pesquisa de preço concluída na semana mais recente.
 
 - **IBGE/SIDRA**: cobertura territorial restrita às 10 regiões metropolitanas que o IPCA abre nessa tabela (Belém, Fortaleza, Recife, Salvador, Belo Horizonte, Grande Vitória, Rio de Janeiro, São Paulo, Curitiba, Porto Alegre) — não é o Brasil inteiro, e nem todo estado tem uma região metropolitana coberta. Não existe um subitem "Manutenção e Acessórios" único no IPCA: usamos `Conserto de automóvel`, que é o subitem que melhor representa mão de obra de manutenção; `Acessórios e peças` também está ingerido na mesma tabela (`ibge_manutencao_veiculos`) e pode entrar em uma próxima versão deste relatório.
 
-- **Todos os três** ainda têm histórico curto (2-3 anos de série real, a maior parte concentrada em 2023-2026) — números tendem a ficar mais estáveis e mais confiáveis conforme a ingestão mensal for acumulando mais meses. Este relatório reflete o dado disponível em 2026-08-13 e deve ser regenerado periodicamente, não tratado como estático.
+- **Todos os três** ainda têm histórico curto (2-3 anos de série real, a maior parte concentrada em 2023-2026) — números tendem a ficar mais estáveis e mais confiáveis conforme a ingestão mensal for acumulando mais meses. As seções ANP e IBGE/SIDRA refletem o dado disponível em 2026-08-13; a seção FIPE foi recalculada em 2026-08-18 sobre o catálogo completo (ver nota no início daquela seção). Este relatório deve ser regenerado periodicamente, não tratado como estático.
 
 ---
 

@@ -1,6 +1,6 @@
 # Metodologia do Risco de Depreciação por Categoria
 
-Calculado em: **2026-08-13 16:48 UTC**, pelo script `scripts/analise/calcular_risco_categoria.py`.
+Calculado em: **2026-08-18 04:31 UTC**, pelo script `scripts/analise/calcular_risco_categoria.py`.
 
 Esses números substituem os valores heurísticos inventados que o simulador usava antes (5%/10%/18%/15%) por uma variação real de preço, calculada a partir do histórico de preços FIPE já importado neste projeto (tabela `fipe_historico_precos`).
 
@@ -20,10 +20,10 @@ Os quartis são calculados só sobre os veículos não-elétricos — como o el�
 
 | Categoria | Veículos na categoria (preço mais recente) | Veículos com histórico real (2+ meses) usados no cálculo de risco |
 |---|---|---|
-| popular | 12472 | 770 |
-| intermediario | 24943 | 1241 |
-| premium | 12472 | 186 |
-| eletrico | 951 | 56 |
+| popular | 12472 | 7539 |
+| intermediario | 24943 | 15913 |
+| premium | 12472 | 6172 |
+| eletrico | 951 | 690 |
 
 ## Como o risco (variação real de preço) foi calculado
 
@@ -38,30 +38,31 @@ O risco de cada categoria é a **média do CV dos veículos daquela categoria** 
 
 | Categoria | Risco (CV médio) | Amplitude média (cross-check) |
 |---|---|---|
-| popular | 1.63% | 4.96% |
-| intermediario | 2.31% | 7.03% |
-| premium | 2.59% | 7.67% |
-| eletrico | 2.71% | 7.31% |
+| popular | 1.83% | 5.67% |
+| intermediario | 2.07% | 6.41% |
+| premium | 2.59% | 7.71% |
+| eletrico | 2.93% | 8.53% |
 
 JSON exportado: `data/processed/risco_categoria.json`
 
 ```json
 {
-  "popular": 0.0163,
-  "intermediario": 0.0231,
+  "popular": 0.0183,
+  "intermediario": 0.0207,
   "premium": 0.0259,
-  "eletrico": 0.0271
+  "eletrico": 0.0293
 }
 ```
 
 ## Período de histórico usado
 
 - 12 meses de referência distintos disponíveis no banco, de **setembro de 2025** a **agosto de 2026**.
-- 75309 linhas de preço no total, para 50838 combinações distintas de código FIPE/ano-modelo/combustível.
+- 379078 linhas de preço no total, para 50838 combinações distintas de código FIPE/ano-modelo/combustível.
 
 ## Limitações — seja honesto sobre isso ao usar o número
 
-- **O histórico real ainda é curto.** A maior parte do catálogo (~48 mil veículos) foi importada de uma vez só via CSV completo da FIPE referente a um único mês (agosto/2026) — para esses veículos não existe ainda variação mês a mês pra medir. Só um subconjunto de cerca de 2.200 veículos foi acompanhado mês a mês (a maioria com os 12 meses de setembro/2025 a agosto/2026, via ingestão pela API do plano pago), e é só esse subconjunto que entra no cálculo do risco.
-- **A categoria elétrico tem a menor amostra com histórico real** (56 veículos) — o número tende a ser mais instável que o das outras categorias e deve ser revisado quando houver mais meses acumulados.
+- **A amostra com histórico real cresceu de 2.253 para 30.314 veículos** (de 50.838 combinações no catálogo, 60%) desde a última rodada — a ingestão completa pela API do plano pago (30.433 combinações marca/modelo/ano) terminou, então agora a maior parte do catálogo tem 12 meses reais de preço, não só o pequeno subconjunto acompanhado antes. O restante ainda veio só de um CSV de um único mês e não entra nessa conta.
+- **Mesmo com a amostra ~13x maior, o horizonte medido continua sendo de até 12 meses** (setembro/2025 a agosto/2026) — isso mede quanto a própria tabela FIPE oscila mês a mês, não é uma medida de depreciação/revenda no horizonte de anos que o simulador realmente precisa. Mais amostra deixou o número mais confiável *dentro desse horizonte curto*, mas não resolve a limitação de horizonte em si — só o tempo (mais meses acumulados) resolve isso.
+- **A categoria elétrico tem a menor amostra com histórico real** (690 veículos) — o número tende a ser mais instável que o das outras categorias e deve ser revisado quando houver mais meses acumulados.
 - Os quartis de preço usam o preço **mais recente disponível** de cada veículo, que na prática é o mês do CSV mais recente pra quase todo mundo — não há problema de mistura de meses diferentes nessa parte da conta.
 - Conforme a ingestão mensal (`scripts/ingestao/fipe_historico.py` / `fipe_importar_csv.py`) for acumulando mais meses, este script deve ser rodado de novo para refinar os números — o risco calculado aqui tende a ficar mais confiável com mais meses de dado real.

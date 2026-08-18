@@ -329,15 +329,26 @@ def escrever_metodologia(
         "combinações distintas de código FIPE/ano-modelo/combustível."
     )
 
+    total_com_historico = int(resumo_variacao["n_veiculos_com_historico"].sum())
+    pct_com_historico = 100 * total_com_historico / total_veiculos
+    total_com_historico_fmt = f"{total_com_historico:,}".replace(",", ".")
+    total_veiculos_fmt = f"{total_veiculos:,}".replace(",", ".")
+
     blocos.append(
         "## Limitações — seja honesto sobre isso ao usar o número\n\n"
-        "- **O histórico real ainda é curto.** A maior parte do catálogo "
-        "(~48 mil veículos) foi importada de uma vez só via CSV completo da FIPE "
-        "referente a um único mês (agosto/2026) — para esses veículos não existe "
-        "ainda variação mês a mês pra medir. Só um subconjunto de cerca de 2.200 "
-        "veículos foi acompanhado mês a mês (a maioria com os 12 meses de "
-        "setembro/2025 a agosto/2026, via ingestão pela API do plano pago), e é "
-        "só esse subconjunto que entra no cálculo do risco.\n"
+        f"- **A amostra com histórico real cresceu de 2.253 para "
+        f"{total_com_historico_fmt} veículos** (de {total_veiculos_fmt} combinações "
+        f"no catálogo, {pct_com_historico:.0f}%) "
+        "desde a última rodada — a ingestão completa pela API do plano pago (30.433 "
+        "combinações marca/modelo/ano) terminou, então agora a maior parte do catálogo "
+        "tem 12 meses reais de preço, não só o pequeno subconjunto acompanhado antes. "
+        "O restante ainda veio só de um CSV de um único mês e não entra nessa conta.\n"
+        "- **Mesmo com a amostra ~13x maior, o horizonte medido continua sendo de até "
+        "12 meses** (setembro/2025 a agosto/2026) — isso mede quanto a própria tabela "
+        "FIPE oscila mês a mês, não é uma medida de depreciação/revenda no horizonte de "
+        "anos que o simulador realmente precisa. Mais amostra deixou o número mais "
+        "confiável *dentro desse horizonte curto*, mas não resolve a limitação de "
+        "horizonte em si — só o tempo (mais meses acumulados) resolve isso.\n"
         "- **A categoria elétrico tem a menor amostra com histórico real** "
         f"({int(resumo_variacao.loc['eletrico', 'n_veiculos_com_historico'])} "
         "veículos) — o número tende a ser mais instável que o das outras "
