@@ -386,3 +386,115 @@ DuckDB (`data/processed/indice_gsa.duckdb`) representa.
     segurado, mas isso exigiria uma chamada por combinação de filtro
     (centenas/milhares de combinações possíveis) contra um sistema ASP
     legado e frágil — fora de escopo nesta rodada.
+
+## SENATRAN — RENAVAM (frota de veículos) e RENAEST (acidentes de trânsito)
+
+- **Nome oficial**: "Registro Nacional de Veículos Automotores" (RENAVAM)
+  e "Registro Nacional de Sinistros e Estatísticas de Trânsito"
+  (RENAEST), publicados pela SENATRAN (Secretaria Nacional de Trânsito,
+  Ministério dos Transportes).
+- **URL**: os dois datasets vivem num portal **próprio** do Ministério
+  dos Transportes — **dados.transportes.gov.br** — não no dados.gov.br
+  (o catálogo geral usado por SUSEP/IBGE/ANEEL neste projeto).
+  - RENAVAM: https://dados.transportes.gov.br/dataset/registro-nacional-de-veiculos-automotores-renavam
+  - RENAEST: https://dados.transportes.gov.br/dataset/renaest
+- **Investigação de acesso feita antes de escrever os scripts**:
+  dados.transportes.gov.br também roda CKAN, mas — diferente do
+  dados.gov.br (que passou a exigir token Bearer em toda chamada, ver
+  seção SUSEP acima) — o endpoint público
+  `/api/3/action/package_show?id=<dataset>` respondeu normalmente **sem
+  autenticação**, confirmado com uma chamada direta antes de escrever
+  qualquer script. Os dois datasets foram achados no catálogo por busca
+  direta (não exigiu inspecionar chamadas de rede do site, diferente de
+  SUSEP/ANEEL).
+- **Formato real da fonte**: um recurso **ZIP por mês** em cada
+  dataset, cada ZIP contendo o **snapshot/histórico completo até aquele
+  mês** (não incremental) — baixar só o recurso mais recente já dá o
+  dado atual, sem precisar puxar os 50-150+ meses de histórico
+  catalogados.
+  - **RENAVAM**: 156 recursos catalogados, mensal desde maio/2013. Cada
+    ZIP tem um único TXT delimitado por `;`, snapshot daquele mês:
+    `UF;Município;Marca Modelo;Ano Fabricação Veículo CRV;Qtd.
+    Veículos`. **Não existe** quebra por categoria "tipo de veículo"
+    nesse dataset — a granularidade real é por marca/modelo (ex.:
+    "HONDA/BIZ EX"), bem mais fina que uma categoria de tipo. O mês de
+    referência real está só no **nome do arquivo** (ex.:
+    `..._julho_2026.zip`), não dentro do TXT.
+  - **RENAEST**: 54 recursos catalogados, mensal desde outubro/2021.
+    Cada ZIP tem **4 CSVs microdado** (não um agregado): `Acidentes_*`
+    (1 linha por acidente, colunas incluindo `uf_acidente`,
+    `codigo_ibge`, `ano_acidente`, `mes_acidente`, `num_acidente`),
+    `TipoVeiculo_*` (1 linha por tipo de veículo envolvido em cada
+    acidente, chave `num_acidente`, coluna `tipo_veiculo` com 35
+    valores distintos confirmados — AUTOMOVEL, MOTOCICLETA, CAMINHAO,
+    ONIBUS, BICICLETA etc.), `Localidade_*` (de-para `codigo_ibge` →
+    município/UF/região) e `Vitimas_*` (perfil demográfico das
+    vítimas — **não ingerido**, fora do escopo desta tarefa). O mês de
+    referência real está no **nome do recurso** no CKAN
+    (`"RENAEST - Mensal - MM-AAAA"`, com espaçamento inconsistente em
+    parte dos 54 recursos), não num campo dentro dos CSVs. Delimitador
+    `;`, codificação UTF-8, nomes de UF/município **sem acento** (ASCII
+    simples) — sem ambiguidade de encoding pra resolver aqui, diferente
+    do CSV cp1252 da ANEEL.
+- **Frequência de atualização da fonte**: RENAVAM é mensal e corrente
+  (recurso mais recente encontrado nesta ingestão: julho/2026).
+  RENAEST é mensal mas com **defasagem de consolidação** — o recurso
+  mais recente catalogado no momento desta ingestão referenciava
+  abril/2026, publicado em 13/08/2026 (~4 meses de atraso), refletindo
+  o tempo de homologação dos dados pelos DETRANs estaduais antes de
+  virarem RENAEST nacional. Um novo recurso apareceu no catálogo entre
+  o início e o fim desta tarefa (de "03-2026" pra "04-2026") — sinal de
+  que a busca do recurso mais recente pelo nome (não hardcoded) era a
+  escolha certa, já que uma URL fixa teria ficado desatualizada em
+  poucos dias.
+- **Como é ingerida aqui**:
+  - `scripts/ingestao/senatran_frota.py`: consulta o CKAN, acha o
+    recurso mais recente pelo mês/ano no **nome do arquivo** (não pelo
+    campo `created` do CKAN, que é data de upload e pode divergir do
+    mês de referência), baixa o ZIP, extrai o TXT e carrega **por
+    completo** via leitor nativo de CSV do DuckDB (22.690.877 linhas,
+    ~1,2GB descomprimido — carregado sem problema, ordem de grandeza
+    similar ao `arq_casco_comp.csv` da SUSEP). Grava em
+    `senatran_frota` (uf, municipio, marca_modelo,
+    ano_fabricacao_crv, quantidade, mes_referencia — este último
+    injetado a partir do nome do arquivo). Full-refresh a cada
+    execução.
+  - `scripts/ingestao/senatran_acidentes.py`: mesmo padrão de busca do
+    recurso mais recente (aqui pelo nome do recurso no CKAN), baixa o
+    ZIP (~500MB) e extrai só os 3 CSVs necessários (Acidentes,
+    TipoVeiculo, Localidade — Vitímas fica de fora, economiza ~1,8GB).
+    Por padrão carrega só os últimos 3 anos de acidentes
+    (`--anos-recentes`, ajustável; `--tudo` pra série completa desde
+    outubro/2021) — o volume completo é dezenas de milhões de linhas,
+    grande demais pra carregar sempre por padrão. Agrega via SQL
+    (DuckDB lendo os CSVs direto, sem pandas) juntando `Acidentes` com
+    `TipoVeiculo` por `num_acidente` e com `Localidade` pra resolver o
+    nome do município, agrupando por
+    uf/codigo_ibge/município/ano/mês/tipo_veiculo. Grava em
+    `senatran_acidentes`. Full-refresh a cada execução.
+- **O que cada tabela representa**:
+  - `senatran_frota`: frota de veículos por UF, município,
+    **marca/modelo** (não "tipo de veículo" — a fonte não tem essa
+    quebra, ver acima) e ano de fabricação, no mês de referência mais
+    recente disponível. Inclui 3 valores de UF que são rótulos da
+    própria SENATRAN pra registros sem UF resolvida (`Sem Informação`,
+    `Não se Aplica`, `Não Identificado`) — mantidos como vieram, sem
+    filtrar, já que representam ~3M veículos reais (`Sem Informação`)
+    que não devem ser descartados silenciosamente de um total nacional.
+  - `senatran_acidentes`: acidentes de trânsito por UF, código IBGE do
+    município (+ nome, quando resolvido via `Localidade`), ano/mês e
+    tipo de veículo envolvido, com **duas métricas separadas** (de
+    propósito, pra não confundir uma coisa com a outra):
+    `quantidade_acidentes` (COUNT DISTINCT de `num_acidente` — quantos
+    acidentes distintos tiveram pelo menos um veículo daquele tipo
+    envolvido) e `quantidade_veiculos` (soma de `qtde_veiculos` do
+    RENAEST — quantos veículos daquele tipo estiveram envolvidos, pode
+    superar `quantidade_acidentes` quando há mais de um veículo do
+    mesmo tipo no mesmo acidente). **Limitação conhecida, da própria
+    fonte**: somar `quantidade_acidentes` entre todos os tipos de
+    veículo de um UF/mês não bate com o total real de acidentes daquele
+    UF/mês, porque um acidente com carro+moto conta nos dois tipos —
+    o RENAEST publica por tipo de veículo envolvido, não um total
+    mutuamente exclusivo. Nesta rodada (`--anos-recentes 3`, padrão):
+    309.203 linhas, cobrindo 2024–2026, 35 tipos de veículo distintos e
+    86.665 combinações UF/município/mês distintas.
